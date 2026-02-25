@@ -94,16 +94,32 @@ window.buscarPreco = async function () {
       .from("dist_bares")
       .select("bar, lat, lng");
 
-    // Junta preços com localização
+    // Junta preços com localização e calcula distância
     const baresComDistancia = bares.map(item => {
-      const dist = distBares.find(d => d.bar === item.bar);
+      const dist = distBares.find(d => d.bar.trim().toLowerCase() === item.bar.trim().toLowerCase());
+      let distancia = null;
+      let lat = null;
+      let lng = null;
+
+      if (dist && dist.lat != null && dist.lng != null) {
+        lat = Number(dist.lat);
+        lng = Number(dist.lng);
+        distancia = calcularDistancia(userLat, userLng, lat, lng);
+      }
+
       return {
         ...item,
-        lat: dist?.lat,
-        lng: dist?.lng,
-        distancia: dist?.lat && dist?.lng ? calcularDistancia(userLat, userLng, dist.lat, dist.lng) : null
+        lat,
+        lng,
+        distancia
       };
     });
+
+    // Verifica se algum bar não tem lat/lng
+    const semLocalizacao = baresComDistancia.filter(b => b.distancia === null);
+    if (semLocalizacao.length > 0) {
+      console.warn("Alguns bares não possuem lat/lng definidos:", semLocalizacao.map(b => b.bar));
+    }
 
     // Ordena por distância se disponível, senão por preço
     baresComDistancia.sort((a, b) => {
