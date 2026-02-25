@@ -40,7 +40,7 @@ window.adicionarPreco = async function () {
 
 // --- FUNÇÃO CALCULAR DISTÂNCIA ---
 function calcularDistancia(lat1, lng1, lat2, lng2) {
-  const R = 6371;
+  const R = 6371; // raio da Terra em km
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLng = (lng2 - lng1) * Math.PI / 180;
   const a =
@@ -75,7 +75,7 @@ window.buscarPreco = async function () {
     // Busca preços do produto
     const { data: bares, error } = await supabase
       .from("bares")
-      .select("bar, preco, lat, lng")
+      .select("bar, produto, preco")
       .eq("produto", produto);
 
     if (error) {
@@ -89,24 +89,31 @@ window.buscarPreco = async function () {
       return;
     }
 
-    // Calcula distância
-    bares.forEach(item => {
-      if (item.lat && item.lng) {
-        item.distancia = calcularDistancia(userLat, userLng, item.lat, item.lng);
-      } else {
-        item.distancia = null;
-      }
+    // Busca localização dos bares
+    const { data: distBares } = await supabase
+      .from("dist_bares")
+      .select("bar, lat, lng");
+
+    // Junta preços com localização
+    const baresComDistancia = bares.map(item => {
+      const dist = distBares.find(d => d.bar === item.bar);
+      return {
+        ...item,
+        lat: dist?.lat,
+        lng: dist?.lng,
+        distancia: dist?.lat && dist?.lng ? calcularDistancia(userLat, userLng, dist.lat, dist.lng) : null
+      };
     });
 
-    // Ordena por preço e distância
-    bares.sort((a,b) => {
+    // Ordena por distância se disponível, senão por preço
+    baresComDistancia.sort((a, b) => {
       if (a.distancia != null && b.distancia != null) return a.distancia - b.distancia;
       return a.preco - b.preco;
     });
 
     // Exibe resultados
     let html = "";
-    bares.forEach((item, index) => {
+    baresComDistancia.forEach((item, index) => {
       const distText = item.distancia != null ? ` - ${item.distancia.toFixed(2)} km` : "";
       if (index === 0) html += `<p style="color: green; font-weight: bold;">🏆 ${item.bar} - R$ ${item.preco.toFixed(2)}${distText}</p>`;
       else html += `<p>${item.bar} - R$ ${item.preco.toFixed(2)}${distText}</p>`;
@@ -114,17 +121,17 @@ window.buscarPreco = async function () {
 
     resultadoDiv.innerHTML = html;
 
-  }, (err) => {
+  }, async (err) => {
     console.error("Erro ao pegar localização:", err);
     alert("Não foi possível obter sua localização. Mostrando preços sem distância.");
 
     // Se falhar, apenas mostrar preços sem distância
-    const { data: bares, error } = supabase
+    const { data: bares, error } = await supabase
       .from("bares")
-      .select("bar, preco")
+      .select("bar, produto, preco")
       .eq("produto", produto);
 
-    let html = bares.map((item, index) => `<p>${item.bar} - R$ ${item.preco.toFixed(2)}</p>`).join("");
+    let html = bares.map(item => `<p>${item.bar} - R$ ${item.preco.toFixed(2)}</p>`).join("");
     resultadoDiv.innerHTML = html || "Nenhum preço encontrado.";
   });
 };
