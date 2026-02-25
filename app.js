@@ -4,6 +4,14 @@ const supabaseUrl = 'https://zuupkhhvcrjzwkgwwtgz.supabase.co'
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1dXBraGh2Y3JqendrZ3d3dGd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NDg3MTcsImV4cCI6MjA4NzUyNDcxN30.KJiStEORy4v9egIiPsbK5qy_KS4GPwYSypFEZ3494zw'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+// --- FUNÇÃO NORMALIZAR NOMES ---
+function normalize(str) {
+  return str
+    .trim()
+    .normalize("NFD")                 // separa acentos
+    .replace(/[\u0300-\u036f]/g, "") // remove acentos
+    .toLowerCase();
+}
 
 // --- FUNÇÃO ADICIONAR OU ATUALIZAR PREÇO ---
 window.adicionarPreco = async function () {
@@ -96,7 +104,7 @@ window.buscarPreco = async function () {
 
     // Junta preços com localização e calcula distância
     const baresComDistancia = bares.map(item => {
-      const dist = distBares.find(d => d.bar.trim().toLowerCase() === item.bar.trim().toLowerCase());
+      const dist = distBares.find(d => normalize(d.bar) === normalize(item.bar));
       let distancia = null;
       let lat = null;
       let lng = null;
