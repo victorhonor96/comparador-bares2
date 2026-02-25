@@ -26,6 +26,11 @@ async function carregarDistBares() {
     distBaresCache = [];
   } else {
     distBaresCache = data;
+
+    // Mostrar a localização de todos os bares no console
+    distBaresCache.forEach(b => {
+      console.log(`${b.bar} - Lat: ${b.lat}, Lng: ${b.lng}`);
+    });
   }
 }
 
@@ -93,6 +98,7 @@ window.buscarPreco = async function () {
   navigator.geolocation.getCurrentPosition(async (pos) => {
     const userLat = pos.coords.latitude;
     const userLng = pos.coords.longitude;
+    console.log("Sua localização:", userLat, userLng);
 
     // Buscar preços do produto
     const { data: bares, error } = await supabase
@@ -111,12 +117,14 @@ window.buscarPreco = async function () {
       return;
     }
 
-    // Junta preços com localização a partir do JSON carregado
+    // Junta preços com localização a partir do cache
     const baresComDistancia = bares.map(item => {
       const dist = distBaresCache.find(d => normalize(d.bar) === normalize(item.bar));
       let distancia = null;
       if (dist && dist.lat != null && dist.lng != null) {
-        distancia = calcularDistancia(userLat, userLng, Number(dist.lat), Number(dist.lng));
+        const lat = Number(dist.lat);
+        const lng = Number(dist.lng);
+        distancia = calcularDistancia(userLat, userLng, lat, lng);
       }
       return { ...item, distancia };
     });
