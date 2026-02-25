@@ -25,6 +25,15 @@ h1 {
   color: #333;
 }
 
+.card button {
+  background-color: #c00;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  margin-top: 15px; /* espaçamento maior acima do botão */
+}
+
 select, input[type="text"], input[type="number"], button {
   width: 100%;
   padding: 10px;
@@ -72,7 +81,9 @@ footer {
   color: #666;
   font-size: 14px;
 }
-
+#buscarBtn {
+  margin-top: 25px; /* maior espaçamento acima do botão */
+}
 /* Responsivo para mobile */
 @media screen and (max-width: 600px) {
   .card, #resultado {
