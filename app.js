@@ -28,14 +28,6 @@ async function carregarDistBares() {
   } else {
     window.distBaresCache = data;
     console.log("Bares carregados no cache:", window.distBaresCache);
-
-    // Mostrar especificamente Buteco Boi Brabo
-    const buteco = window.distBaresCache.find(d => normalize(d.bar) === normalize("Buteco Boi Brabo"));
-    if (buteco) {
-      console.log("Buteco Boi Brabo - Lat:", buteco.lat, "Lng:", buteco.lng);
-    } else {
-      console.log("Buteco Boi Brabo não encontrado na tabela dist_bares");
-    }
   }
 }
 
@@ -72,17 +64,17 @@ window.adicionarPreco = async function () {
   }
 };
 
-// --- CALCULAR DISTÂNCIA ---
+// --- CALCULAR DISTÂNCIA ENTRE COORDENADAS ---
 function calcularDistancia(lat1, lng1, lat2, lng2) {
   const R = 6371; // km
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLng = (lng2 - lng1) * Math.PI / 180;
   const a =
-    Math.sin(dLat/2)**2 +
-    Math.cos(lat1 * Math.PI/180) *
-    Math.cos(lat2 * Math.PI/180) *
-    Math.sin(dLng/2)**2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
@@ -116,7 +108,6 @@ window.buscarPreco = async function () {
     return;
   }
 
-  // Mostrar preços sem distância
   let html = "";
   bares.forEach((item, idx) => {
     html += idx === 0
@@ -127,7 +118,22 @@ window.buscarPreco = async function () {
 };
 
 // --- MOSTRAR DISTÂNCIA PARA TODOS OS BARES ---
-window.mostrarDistancias = function () {
+window.mostrarDistancias = async function () {
+  // Garante que o cache está carregado
+  if (!window.distBaresCache || window.distBaresCache.length === 0) {
+    console.log("Cache vazio, carregando dist_bares...");
+    const { data, error } = await supabase
+      .from("dist_bares")
+      .select("bar, lat, lng");
+
+    if (error) {
+      console.error("Erro ao carregar dist_bares:", error);
+      return;
+    }
+    window.distBaresCache = data;
+  }
+
+  // Pega a localização do usuário
   if (!navigator.geolocation) {
     alert("Geolocalização não suportada pelo navegador.");
     return;
@@ -140,9 +146,7 @@ window.mostrarDistancias = function () {
 
     window.distBaresCache.forEach(b => {
       if (b.lat != null && b.lng != null) {
-        const lat = Number(b.lat);
-        const lng = Number(b.lng);
-        const dist = calcularDistancia(userLat, userLng, lat, lng);
+        const dist = calcularDistancia(userLat, userLng, Number(b.lat), Number(b.lng));
         console.log(`${b.bar} - Distância: ${dist.toFixed(2)} km`);
       } else {
         console.log(`${b.bar} - Lat/Lng não definido`);
