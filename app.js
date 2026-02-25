@@ -4,18 +4,19 @@ const supabaseUrl = 'https://zuupkhhvcrjzwkgwwtgz.supabase.co'
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1dXBraGh2Y3JqendrZ3d3dGd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NDg3MTcsImV4cCI6MjA4NzUyNDcxN30.KJiStEORy4v9egIiPsbK5qy_KS4GPwYSypFEZ3494zw'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// --- FUNÇÃO NORMALIZAR NOMES ---
+// --- NORMALIZAR NOMES ---
 function normalize(str) {
   return str
     .trim()
-    .normalize("NFD")                 // separa acentos
-    .replace(/[\u0300-\u036f]/g, "") // remove acentos
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 }
 
-// --- CACHE DE DIST_BARES ---
-let distBaresCache = [];
+// --- CACHE GLOBAL DE DIST_BARES ---
+window.distBaresCache = [];
 
+// --- CARREGAR DIST_BARES ---
 async function carregarDistBares() {
   const { data, error } = await supabase
     .from("dist_bares")
@@ -23,14 +24,18 @@ async function carregarDistBares() {
 
   if (error) {
     console.error("Erro ao carregar dist_bares:", error);
-    distBaresCache = [];
+    window.distBaresCache = [];
   } else {
-    distBaresCache = data;
+    window.distBaresCache = data;
+    console.log("Bares carregados no cache:", window.distBaresCache);
 
-    // Mostrar a localização de todos os bares no console
-    distBaresCache.forEach(b => {
-      console.log(`${b.bar} - Lat: ${b.lat}, Lng: ${b.lng}`);
-    });
+    // Mostrar especificamente Buteco Boi Brabo
+    const buteco = window.distBaresCache.find(d => normalize(d.bar) === normalize("Buteco Boi Brabo"));
+    if (buteco) {
+      console.log("Buteco Boi Brabo - Lat:", buteco.lat, "Lng:", buteco.lng);
+    } else {
+      console.log("Buteco Boi Brabo não encontrado na tabela dist_bares");
+    }
   }
 }
 
@@ -67,7 +72,7 @@ window.adicionarPreco = async function () {
   }
 };
 
-// --- FUNÇÃO CALCULAR DISTÂNCIA ---
+// --- CALCULAR DISTÂNCIA ---
 function calcularDistancia(lat1, lng1, lat2, lng2) {
   const R = 6371; // km
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -81,7 +86,7 @@ function calcularDistancia(lat1, lng1, lat2, lng2) {
   return R * c;
 }
 
-// --- FUNÇÃO BUSCAR PREÇOS COM DISTÂNCIA ---
+// --- BUSCAR PREÇOS (SEM DISTÂNCIA) ---
 window.buscarPreco = async function () {
   const buscaSelect = document.getElementById("buscaProduto");
   const resultadoDiv = document.getElementById("resultado");
@@ -95,70 +100,59 @@ window.buscarPreco = async function () {
   }
   console.log("Produto buscado:", produto);
 
-  navigator.geolocation.getCurrentPosition(async (pos) => {
+  const { data: bares, error } = await supabase
+    .from("bares")
+    .select("bar, produto, preco")
+    .eq("produto", produto);
+
+  if (error) {
+    console.log("Erro ao buscar preços:", error);
+    resultadoDiv.innerHTML = "Erro ao buscar preços.";
+    return;
+  }
+
+  if (!bares || bares.length === 0) {
+    resultadoDiv.innerHTML = "Nenhum preço encontrado.";
+    return;
+  }
+
+  // Mostrar preços sem distância
+  let html = "";
+  bares.forEach((item, idx) => {
+    html += idx === 0
+      ? `<p style="color: green; font-weight: bold;">🏆 ${item.bar} - R$ ${item.preco.toFixed(2)}</p>`
+      : `<p>${item.bar} - R$ ${item.preco.toFixed(2)}</p>`;
+  });
+  resultadoDiv.innerHTML = html;
+};
+
+// --- MOSTRAR DISTÂNCIA PARA TODOS OS BARES ---
+window.mostrarDistancias = function () {
+  if (!navigator.geolocation) {
+    alert("Geolocalização não suportada pelo navegador.");
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(pos => {
     const userLat = pos.coords.latitude;
     const userLng = pos.coords.longitude;
     console.log("Sua localização:", userLat, userLng);
 
-    // Buscar preços do produto
-    const { data: bares, error } = await supabase
-      .from("bares")
-      .select("bar, produto, preco")
-      .eq("produto", produto);
-
-    if (error) {
-      console.log("Erro ao buscar preços:", error);
-      resultadoDiv.innerHTML = "Erro ao buscar preços.";
-      return;
-    }
-
-    if (!bares || bares.length === 0) {
-      resultadoDiv.innerHTML = "Nenhum preço encontrado.";
-      return;
-    }
-
-    // Junta preços com localização a partir do cache
-    const baresComDistancia = bares.map(item => {
-      const dist = distBaresCache.find(d => normalize(d.bar) === normalize(item.bar));
-      let distancia = null;
-      if (dist && dist.lat != null && dist.lng != null) {
-        const lat = Number(dist.lat);
-        const lng = Number(dist.lng);
-        distancia = calcularDistancia(userLat, userLng, lat, lng);
+    window.distBaresCache.forEach(b => {
+      if (b.lat != null && b.lng != null) {
+        const lat = Number(b.lat);
+        const lng = Number(b.lng);
+        const dist = calcularDistancia(userLat, userLng, lat, lng);
+        console.log(`${b.bar} - Distância: ${dist.toFixed(2)} km`);
+      } else {
+        console.log(`${b.bar} - Lat/Lng não definido`);
       }
-      return { ...item, distancia };
     });
 
-    // Ordena por distância se disponível, senão por preço
-    baresComDistancia.sort((a, b) => {
-      if (a.distancia != null && b.distancia != null) return a.distancia - b.distancia;
-      return a.preco - b.preco;
-    });
-
-    // Exibe resultados
-    let html = "";
-    baresComDistancia.forEach((item, idx) => {
-      const distText = item.distancia != null ? ` - ${item.distancia.toFixed(2)} km` : "";
-      html += idx === 0
-        ? `<p style="color: green; font-weight: bold;">🏆 ${item.bar} - R$ ${item.preco.toFixed(2)}${distText}</p>`
-        : `<p>${item.bar} - R$ ${item.preco.toFixed(2)}${distText}</p>`;
-    });
-
-    resultadoDiv.innerHTML = html;
-
-  }, async (err) => {
+  }, err => {
     console.error("Erro ao pegar localização:", err);
-    alert("Não foi possível obter sua localização. Mostrando preços sem distância.");
-
-    const { data: bares } = await supabase
-      .from("bares")
-      .select("bar, produto, preco")
-      .eq("produto", produto);
-
-    const html = bares.map(item => `<p>${item.bar} - R$ ${item.preco.toFixed(2)}</p>`).join("");
-    resultadoDiv.innerHTML = html || "Nenhum preço encontrado.";
   });
 };
 
-// --- CARREGA DIST_BARES AO ABRIR A PÁGINA ---
+// --- CARREGA DIST_BARES AO INICIAR ---
 carregarDistBares();
