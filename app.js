@@ -78,7 +78,7 @@ function calcularDistancia(lat1, lng1, lat2, lng2) {
   return R * c;
 }
 
-// --- BUSCAR PREÇOS (SEM DISTÂNCIA) ---
+// --- BUSCAR PREÇOS (COM DISTÂNCIA) ---
 window.buscarPreco = async function () {
   const buscaSelect = document.getElementById("buscaProduto");
   const resultadoDiv = document.getElementById("resultado");
@@ -92,9 +92,10 @@ window.buscarPreco = async function () {
   }
   console.log("Produto buscado:", produto);
 
+  // 1️⃣ Busca preços no banco
   const { data: bares, error } = await supabase
     .from("bares")
-    .select("bar, produto, preco")
+    .select("bar, preco")
     .eq("produto", produto);
 
   if (error) {
@@ -108,35 +109,46 @@ window.buscarPreco = async function () {
     return;
   }
 
-  let html = "";
-  bares.forEach((item, idx) => {
-    html += idx === 0
-      ? `<p style="color: green; font-weight: bold;">🏆 ${item.bar} - R$ ${item.preco.toFixed(2)}</p>`
-      : `<p>${item.bar} - R$ ${item.preco.toFixed(2)}</p>`;
-  });
-  resultadoDiv.innerHTML = html;
-};
-
-// --- MOSTRAR DISTÂNCIA PARA TODOS OS BARES ---
-window.mostrarDistancias = async function () {
-  // Garante que o cache está carregado
-  if (!window.distBaresCache || window.distBaresCache.length === 0) {
-    console.log("Cache vazio, carregando dist_bares...");
-    const { data, error } = await supabase
-      .from("dist_bares")
-      .select("bar, lat, lng");
-
-    if (error) {
-      console.error("Erro ao carregar dist_bares:", error);
-      return;
-    }
-    window.distBaresCache = data;
-  }
-
-  // Pega a localização do usuário
+  // 2️⃣ Pega geolocalização do usuário
   if (!navigator.geolocation) {
     alert("Geolocalização não suportada pelo navegador.");
     return;
+  }
+
+  navigator.geolocation.getCurrentPosition(pos => {
+    const userLat = pos.coords.latitude;
+    const userLng = pos.coords.longitude;
+    console.log("Sua localização:", userLat, userLng);
+
+    // 3️⃣ Calcula distância de cada bar
+    const resultadoComDist = bares.map(item => {
+      const barData = window.distBaresCache.find(d => normalize(d.bar) === normalize(item.bar));
+      let dist = null;
+      if (barData && barData.lat != null && barData.lng != null) {
+        dist = calcularDistancia(userLat, userLng, Number(barData.lat), Number(barData.lng));
+      }
+      return { ...item, dist };
+    });
+
+    // 4️⃣ Ordena por preço crescente
+    resultadoComDist.sort((a, b) => a.preco - b.preco);
+
+    // 5️⃣ Mostra na tela
+    let html = "";
+    resultadoComDist.forEach(item => {
+      html += `<p>${item.bar} - R$ ${item.preco.toFixed(2)} - ${item.dist != null ? item.dist.toFixed(2) + " km" : "Distância não disponível"}</p>`;
+    });
+    resultadoDiv.innerHTML = html;
+
+  }, err => {
+    console.error("Erro ao pegar localização:", err);
+  });
+};
+
+// --- MOSTRAR DISTÂNCIAS NO CONSOLE ---
+window.mostrarDistancias = async function () {
+  if (!window.distBaresCache || window.distBaresCache.length === 0) {
+    await carregarDistBares();
   }
 
   navigator.geolocation.getCurrentPosition(pos => {
