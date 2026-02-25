@@ -4,171 +4,194 @@ const supabaseUrl = 'https://zuupkhhvcrjzwkgwwtgz.supabase.co'
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1dXBraGh2Y3JqendrZ3d3dGd6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE5NDg3MTcsImV4cCI6MjA4NzUyNDcxN30.KJiStEORy4v9egIiPsbK5qy_KS4GPwYSypFEZ3494zw'
 const supabase = createClient(supabaseUrl, supabaseKey)
 
-// --- NORMALIZAR NOMES ---
+// Cache para dist_bares
+let distBaresCache = []
+
+// Normaliza nomes para comparação
 function normalize(str) {
-  return str
-    .trim()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
+  return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
 }
 
-// --- CACHE GLOBAL DE DIST_BARES ---
-window.distBaresCache = [];
+/*----------------------
+  Botão 1: Adicionar/Atualizar Preço
+----------------------*/
+async function adicionarPreco() {
+  const produtoEl = document.getElementById("produto")
+  const barEl = document.getElementById("bar")
+  const precoEl = document.getElementById("preco")
 
-// --- CARREGAR DIST_BARES ---
-async function carregarDistBares() {
-  const { data, error } = await supabase
-    .from("dist_bares")
-    .select("bar, lat, lng");
-
-  if (error) {
-    console.error("Erro ao carregar dist_bares:", error);
-    window.distBaresCache = [];
-  } else {
-    window.distBaresCache = data;
-    console.log("Bares carregados no cache:", window.distBaresCache);
-  }
-}
-
-// --- FUNÇÃO ADICIONAR OU ATUALIZAR PREÇO ---
-window.adicionarPreco = async function () {
-  const produtoSelect = document.getElementById("produto");
-  const barInput = document.getElementById("bar");
-  const precoInput = document.getElementById("preco");
-
-  const produto = produtoSelect.value.trim();
-  const bar = barInput.value.trim();
-  const preco = parseFloat(precoInput.value);
+  const produto = produtoEl.value
+  const bar = barEl.value
+  const preco = parseFloat(precoEl.value)
 
   if (!produto || !bar || isNaN(preco)) {
-    alert("Preencha todos os campos corretamente!");
-    return;
+    alert("Preencha todos os campos corretamente!")
+    return
   }
 
-  const { error } = await supabase
+  // Upsert no Supabase (produto + bar)
+  const { data, error } = await supabase
     .from("bares")
-    .upsert(
-      [{ produto, bar, preco }],
-      { onConflict: ["produto", "bar"] }
-    );
+    .upsert({ produto, bar, preco }, { onConflict: ['produto', 'bar'] })
+    .select()
 
   if (error) {
-    console.log("Erro ao salvar preço:", error);
-    alert("Erro ao salvar/atualizar preço!");
-  } else {
-    alert("Preço salvo/atualizado com sucesso!");
-    precoInput.value = "";
-    barInput.value = "";
-    produtoSelect.value = "";
+    console.error("Erro ao inserir/atualizar:", error)
+    alert("Erro ao salvar preço.")
+    return
   }
-};
 
-// --- CALCULAR DISTÂNCIA ENTRE COORDENADAS ---
-function calcularDistancia(lat1, lng1, lat2, lng2) {
-  const R = 6371; // km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) *
-    Math.cos(lat2 * Math.PI / 180) *
-    Math.sin(dLng / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  alert(`Preço do produto "${produto}" no bar "${bar}" atualizado com sucesso!`)
 }
 
-// --- BUSCAR PREÇOS (COM DISTÂNCIA) ---
-window.buscarPreco = async function () {
-  const buscaSelect = document.getElementById("buscaProduto");
-  const resultadoDiv = document.getElementById("resultado");
+/*----------------------
+  Botão 2: Buscar Produto
+----------------------*/
+async function buscarPreco() {
+  const produtoEl = document.getElementById("buscaProduto")
+  const produto = produtoEl.value
 
-  if (!buscaSelect || !resultadoDiv) return;
-
-  const produto = buscaSelect.value.trim();
   if (!produto) {
-    alert("Selecione um produto");
-    return;
+    alert("Selecione um produto!")
+    return
   }
-  console.log("Produto buscado:", produto);
 
-  // 1️⃣ Busca preços no banco
-  const { data: bares, error } = await supabase
+  // Carrega dist_bares se ainda não estiver
+  if (!distBaresCache || distBaresCache.length === 0) {
+    const { data: distData, error: distError } = await supabase
+      .from("dist_bares")
+      .select("*")
+    if (distError) {
+      console.error(distError)
+      alert("Erro ao carregar dist_bares")
+      return
+    }
+    distBaresCache = distData
+  }
+
+  // Pega preços do produto
+  const { data: precos, error: precoError } = await supabase
     .from("bares")
-    .select("bar, preco")
-    .eq("produto", produto);
+    .select("*")
+    .eq("produto", produto)
 
-  if (error) {
-    console.log("Erro ao buscar preços:", error);
-    resultadoDiv.innerHTML = "Erro ao buscar preços.";
-    return;
+  if (precoError) {
+    console.error(precoError)
+    return
   }
 
-  if (!bares || bares.length === 0) {
-    resultadoDiv.innerHTML = "Nenhum preço encontrado.";
-    return;
-  }
+  // Pega sua localização
+  navigator.geolocation.getCurrentPosition(pos => {
+    const minhaLat = pos.coords.latitude
+    const minhaLng = pos.coords.longitude
 
-  // 2️⃣ Pega geolocalização do usuário
-  if (!navigator.geolocation) {
-    alert("Geolocalização não suportada pelo navegador.");
-    return;
+    const resultadoDiv = document.getElementById("resultado")
+    resultadoDiv.innerHTML = ""
+
+    if (precos.length === 0) {
+      resultadoDiv.innerHTML = "<p>Nenhum preço encontrado.</p>"
+      return
+    }
+
+    // Mapeia cada preço com distância
+    const precosComDistancia = precos.map(p => {
+      const barCoord = distBaresCache.find(d => normalize(d.bar) === normalize(p.bar))
+      let distancia = null
+      if (barCoord) {
+        // Haversine
+        const R = 6371
+        const dLat = (barCoord.lat - minhaLat) * Math.PI / 180
+        const dLng = (barCoord.lng - minhaLng) * Math.PI / 180
+        const a = Math.sin(dLat/2)**2 + Math.cos(minhaLat*Math.PI/180)*Math.cos(barCoord.lat*Math.PI/180)*Math.sin(dLng/2)**2
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+        distancia = (R * c).toFixed(2)
+      }
+      return { ...p, distancia }
+    })
+
+    // Ordena por preço e depois distância
+    precosComDistancia.sort((a, b) => {
+      if (a.preco !== b.preco) return a.preco - b.preco
+      return (a.distancia || 9999) - (b.distancia || 9999)
+    })
+
+    // Mostra no HTML
+    precosComDistancia.forEach(p => {
+      const barCoord = distBaresCache.find(d => normalize(d.bar) === normalize(p.bar))
+      const lat = barCoord ? barCoord.lat : "N/A"
+      const lng = barCoord ? barCoord.lng : "N/A"
+      const div = document.createElement("div")
+      div.innerHTML = `
+        <strong>${p.bar}</strong> - R$ ${p.preco.toFixed(2)} - Distância: ${p.distancia ? p.distancia + ' km' : 'N/A'}<br>
+        <em>Lat: ${lat}, Lng: ${lng}</em><br>
+        <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lng}" target="_blank">Google Maps</a> |
+        <a href="https://waze.com/ul?ll=${lat},${lng}&navigate=yes" target="_blank">Waze</a> |
+        <a href="https://m.uber.com/ul/?action=setPickup&dropoff[latitude]=${lat}&dropoff[longitude]=${lng}" target="_blank">Uber</a>
+      `
+      resultadoDiv.appendChild(div)
+      resultadoDiv.appendChild(document.createElement("hr"))
+    })
+
+  }, err => {
+    alert("Erro ao obter localização: " + err.message)
+  })
+}
+
+/*----------------------
+  Botão 3: Mostrar todos os bares
+----------------------*/
+async function mostrarDistancias() {
+  // Carrega dist_bares
+  if (!distBaresCache || distBaresCache.length === 0) {
+    const { data: distData, error: distError } = await supabase
+      .from("dist_bares")
+      .select("*")
+    if (distError) {
+      console.error(distError)
+      alert("Erro ao carregar dist_bares")
+      return
+    }
+    distBaresCache = distData
+    console.log("Bares carregados no cache:", distBaresCache)
   }
 
   navigator.geolocation.getCurrentPosition(pos => {
-    const userLat = pos.coords.latitude;
-    const userLng = pos.coords.longitude;
-    console.log("Sua localização:", userLat, userLng);
+    const minhaLat = pos.coords.latitude
+    const minhaLng = pos.coords.longitude
+    console.log("Sua localização:", minhaLat, minhaLng)
 
-    // 3️⃣ Calcula distância de cada bar
-    const resultadoComDist = bares.map(item => {
-      const barData = window.distBaresCache.find(d => normalize(d.bar) === normalize(item.bar));
-      let dist = null;
-      if (barData && barData.lat != null && barData.lng != null) {
-        dist = calcularDistancia(userLat, userLng, Number(barData.lat), Number(barData.lng));
+    const resultadoDiv = document.getElementById("resultado")
+    resultadoDiv.innerHTML = ""
+
+    distBaresCache.forEach(bar => {
+      let distancia = null
+      if (minhaLat && minhaLng && bar.lat && bar.lng) {
+        const R = 6371
+        const dLat = (bar.lat - minhaLat) * Math.PI / 180
+        const dLng = (bar.lng - minhaLng) * Math.PI / 180
+        const a = Math.sin(dLat/2)**2 + Math.cos(minhaLat*Math.PI/180)*Math.cos(bar.lat*Math.PI/180)*Math.sin(dLng/2)**2
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+        distancia = (R * c).toFixed(2)
       }
-      return { ...item, dist };
-    });
 
-    // 4️⃣ Ordena por preço crescente
-    resultadoComDist.sort((a, b) => a.preco - b.preco);
-
-    // 5️⃣ Mostra na tela
-    let html = "";
-    resultadoComDist.forEach(item => {
-      html += `<p>${item.bar} - R$ ${item.preco.toFixed(2)} - ${item.dist != null ? item.dist.toFixed(2) + " km" : "Distância não disponível"}</p>`;
-    });
-    resultadoDiv.innerHTML = html;
+      const div = document.createElement("div")
+      div.innerHTML = `
+        <strong>${bar.bar}</strong> - Distância: ${distancia ? distancia + ' km' : 'N/A'}<br>
+        <em>Lat: ${bar.lat}, Lng: ${bar.lng}</em><br>
+        <a href="https://www.google.com/maps/search/?api=1&query=${bar.lat},${bar.lng}" target="_blank">Google Maps</a> |
+        <a href="https://waze.com/ul?ll=${bar.lat},${bar.lng}&navigate=yes" target="_blank">Waze</a> |
+        <a href="https://m.uber.com/ul/?action=setPickup&dropoff[latitude]=${bar.lat}&dropoff[longitude]=${bar.lng}" target="_blank">Uber</a>
+      `
+      resultadoDiv.appendChild(div)
+      resultadoDiv.appendChild(document.createElement("hr"))
+    })
 
   }, err => {
-    console.error("Erro ao pegar localização:", err);
-  });
-};
+    alert("Erro ao obter localização: " + err.message)
+  })
+}
 
-// --- MOSTRAR DISTÂNCIAS NO CONSOLE ---
-window.mostrarDistancias = async function () {
-  if (!window.distBaresCache || window.distBaresCache.length === 0) {
-    await carregarDistBares();
-  }
-
-  navigator.geolocation.getCurrentPosition(pos => {
-    const userLat = pos.coords.latitude;
-    const userLng = pos.coords.longitude;
-    console.log("Sua localização:", userLat, userLng);
-
-    window.distBaresCache.forEach(b => {
-      if (b.lat != null && b.lng != null) {
-        const dist = calcularDistancia(userLat, userLng, Number(b.lat), Number(b.lng));
-        console.log(`${b.bar} - Distância: ${dist.toFixed(2)} km`);
-      } else {
-        console.log(`${b.bar} - Lat/Lng não definido`);
-      }
-    });
-
-  }, err => {
-    console.error("Erro ao pegar localização:", err);
-  });
-};
-
-// --- CARREGA DIST_BARES AO INICIAR ---
-carregarDistBares();
+// Exporta funções para o HTML
+window.adicionarPreco = adicionarPreco
+window.buscarPreco = buscarPreco
+window.mostrarDistancias = mostrarDistancias
